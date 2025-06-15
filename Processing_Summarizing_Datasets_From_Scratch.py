@@ -13,13 +13,13 @@ import numpy as np
 from datasets import load_dataset
 from string import punctuation
 
-!pip install --upgrade datasets
-dataset = load_dataset("cnn_dailymail","3.0.0")
+#!pip install --upgrade datasets
+#dataset = load_dataset("cnn_dailymail","3.0.0")
 
-train_articles = np.array(dataset['train'][:14000]['article'])
-train_summaries = np.array(dataset['train'][:14000]['highlights'])
-text_training = {'articles':train_articles,
-                 'summaries':train_summaries}
+#train_articles = np.array(dataset['train'][:14000]['article'])
+#train_summaries = np.array(dataset['train'][:14000]['highlights'])
+#text_training = {'articles':train_articles,
+#                 'summaries':train_summaries}
 
 """# Pre-Processing"""
 
