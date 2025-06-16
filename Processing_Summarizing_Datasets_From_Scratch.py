@@ -13,14 +13,6 @@ import numpy as np
 from datasets import load_dataset
 from string import punctuation
 
-#!pip install --upgrade datasets
-#dataset = load_dataset("cnn_dailymail","3.0.0")
-#
-#train_articles = np.array(dataset['train'][:14000]['article'])
-#train_summaries = np.array(dataset['train'][:14000]['highlights'])
-#text_training = {'articles':train_articles,
-#                 'summaries':train_summaries}
-
 """# Pre-Processing"""
 
 def removing_unwanted_characters(text):
@@ -121,21 +113,3 @@ def preprocessing(data, length_data, length_target, vocab):
     target_data = paddings(target_data, length_target)
 
     return data, torch.tensor(input_data), torch.tensor(target_data), vocab
-
-#text_train, train_data, train_target, vocab = preprocessing(text_training, 1000, 85, {})
-#
-#embedding_dim = 256
-#vocab_size = len(vocab)
-#embedding_layer = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim, padding_idx=vocab['<pad>'])
-#
-#train_data = train_data.cuda()
-#embedding_layer = embedding_layer.cuda()
-#
-#training_data = embedding_layer(train_data)
-#
-#trained = {'vocab':vocab,
-#        'embdedding_weights':embedding_layer.state_dict()
-#}
-#
-#torch.save(trained, 'trained.pt')
-
