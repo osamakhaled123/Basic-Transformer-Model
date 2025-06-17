@@ -115,12 +115,21 @@ def preprocessing(data, length_data, length_target, vocab):
     return data, torch.tensor(input_data), torch.tensor(target_data), vocab
 
 
-def splitting(input_data, target_data, split_frac):
+def splitting_and_batching(input_data, target_data, split_frac):
     items = split_frac * input_data.shape[0]
-    training_input = input_data[:items]
-    training_target = target_data[:items]
+    train_input = input_data[:items]
+    train_target = target_data[:items]
 
     rest = input_data.shape[0] - items
 
-    val_set = input_data[items:items+rest//2]
-    test_set = input_data[items+rest//2:] 
+    val_input = input_data[items:items+rest//2]
+    val_target = target_data[items:items+rest//2]
+    
+    test_input = input_data[items+rest//2:]
+    test_target = target_data[items+rest//2:]
+
+    train_data = torch.utils.data.TensorDataset(train_input, train_target)
+    val_data = torch.utils.data.TensorDataset(val_input, val_target)
+    test_data = torch.utils.data.TensorDataset(test_input, test_target)
+
+    return train_data, val_data, test_data
