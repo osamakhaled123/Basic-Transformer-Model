@@ -116,7 +116,7 @@ def preprocessing(data, length_data, length_target, vocab):
 
 
 def splitting_and_batching(input_data, target_data, split_frac):
-    items = split_frac * input_data.shape[0]
+    items = int(split_frac * input_data.shape[0])
     train_input = input_data[:items]
     train_target = target_data[:items]
 
