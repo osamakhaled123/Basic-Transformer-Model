@@ -112,7 +112,7 @@ def preprocessing(data, length_data, length_target, vocab):
     input_data = paddings(input_data, length_data)
     target_data = paddings(target_data, length_target)
 
-    return data, torch.from_numpy(input_data), torch.from_numpy(target_data), vocab
+    return data, torch.tensor(input_data), torch.tensor(target_data), vocab
 
 
 def splitting_and_batching(input_data, target_data, split_frac):
