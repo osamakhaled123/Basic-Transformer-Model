@@ -122,11 +122,12 @@ def splitting_and_batching(input_data, target_data, split_frac, batch_size):
 
     rest = input_data.shape[0] - items
 
-    val_input = input_data[items:items+rest//2]
-    val_target = target_data[items:items+rest//2]
+
+    val_input = input_data[items:items+(rest//2)]
+    val_target = target_data[items:items+(rest//2)]
     
-    test_input = input_data[items+rest//2:]
-    test_target = target_data[items+rest//2:]
+    test_input = input_data[items+(rest//2):]
+    test_target = target_data[items+(rest//2):]
 
     train_data = torch.utils.data.TensorDataset(train_input, train_target)
     val_data = torch.utils.data.TensorDataset(val_input, val_target)
