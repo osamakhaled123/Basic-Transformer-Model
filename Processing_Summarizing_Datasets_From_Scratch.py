@@ -113,3 +113,14 @@ def preprocessing(data, length_data, length_target, vocab):
     target_data = paddings(target_data, length_target)
 
     return data, torch.tensor(input_data), torch.tensor(target_data), vocab
+
+
+def splitting(input_data, target_data, split_frac):
+    items = split_frac * input_data.shape[0]
+    training_input = input_data[:items]
+    training_target = target_data[:items]
+
+    rest = input_data.shape[0] - items
+
+    val_set = input_data[items:items+rest//2]
+    test_set = input_data[items+rest//2:] 
