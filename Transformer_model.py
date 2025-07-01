@@ -153,7 +153,7 @@ class Transformer(nn.Module):
         #Encoder Part
         training_data = self.embedding(batch)
         training_data = self.relu(training_data)
-        training_data = self.Dropout(training_data)
+        
         #Positional Encoding masking for training data
         positional_mask_batch = (batch != self.vocab['<pad>']).unsqueeze(-1).float()
         training_data *= positional_mask_batch
@@ -174,7 +174,7 @@ class Transformer(nn.Module):
         #Decoder Part
         target_data = self.embedding(target)
         target_data = self.relu(target_data)
-        target_data = self.Dropout(target_data)
+        
         #Positional Encoding masking for target data
         positional_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
         target_data *= positional_mask_target
