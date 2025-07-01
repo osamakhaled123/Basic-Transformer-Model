@@ -134,7 +134,7 @@ class Transformer(nn.Module):
         self.num_decoder_blocks = num_decoder_blocks
         self.dff = dff
         self.Dropout = nn.Dropout(dropout)
-        self.RelU = nn.ReLU()
+        self.relu = nn.ReLU()
 
         self.embedding = nn.Embedding(len(vocab), emb_dim, padding_idx=vocab['<pad>'])
         self.positional_encoding_encoder = positional_encoding(max_input_length-1, emb_dim)
@@ -148,11 +148,12 @@ class Transformer(nn.Module):
 
         self.masked_attention = multihead_attention(num_heads, emb_dim, True, dropout)
         self.layer_normalization = nn.LayerNorm(emb_dim, dtype=torch.float32)
-        self.pre_softmax_layer = nn.Linear(emb_dim, len(vocab), dtype=torch.float32)
 
     def forward(self, batch, target):
         #Encoder Part
         training_data = self.embedding(batch)
+        training_data = self.relu(training_data)
+        training_data = self.Dropout(training_data)
         #Positional Encoding masking for training data
         positional_mask_batch = (batch != self.vocab['<pad>']).unsqueeze(-1).float()
         training_data *= positional_mask_batch
@@ -172,6 +173,8 @@ class Transformer(nn.Module):
 
         #Decoder Part
         target_data = self.embedding(target)
+        target_data = self.relu(target_data)
+        target_data = self.Dropout(target_data)
         #Positional Encoding masking for target data
         positional_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
         target_data *= positional_mask_target
@@ -193,8 +196,8 @@ class Transformer(nn.Module):
         decoder_output = self.encoder_decoder(Q, K, V, self.decoder_blocks,
                                               attention_mask_target)
 
-        pre_softmax = self.pre_softmax_layer(decoder_output)
-        pre_softmax = self.RelU(pre_softmax)
+        pre_softmax = torch.nn.functional.linear(decoder_output, self.embedding.weight)
+        pre_softmax = self.relu(pre_softmax)
         pre_softmax = self.Dropout(pre_softmax)
 
         return pre_softmax
