@@ -134,7 +134,6 @@ class Transformer(nn.Module):
         self.num_decoder_blocks = num_decoder_blocks
         self.dff = dff
         self.Dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
 
         self.embedding = nn.Embedding(len(vocab), emb_dim, padding_idx=vocab['<pad>'])
         self.positional_encoding_encoder = positional_encoding(max_input_length-1, emb_dim)
@@ -152,8 +151,6 @@ class Transformer(nn.Module):
     def forward(self, batch, target):
         #Encoder Part
         training_data = self.embedding(batch)
-        training_data = self.relu(training_data)
-        
         #Positional Encoding masking for training data
         positional_mask_batch = (batch != self.vocab['<pad>']).unsqueeze(-1).float()
         training_data *= positional_mask_batch
@@ -173,8 +170,6 @@ class Transformer(nn.Module):
 
         #Decoder Part
         target_data = self.embedding(target)
-        target_data = self.relu(target_data)
-        
         #Positional Encoding masking for target data
         positional_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
         target_data *= positional_mask_target
@@ -197,7 +192,6 @@ class Transformer(nn.Module):
                                               attention_mask_target)
 
         pre_softmax = torch.nn.functional.linear(decoder_output, self.embedding.weight)
-        pre_softmax = self.relu(pre_softmax)
         pre_softmax = self.Dropout(pre_softmax)
 
         return pre_softmax
