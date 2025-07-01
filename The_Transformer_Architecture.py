@@ -137,7 +137,7 @@ class Transformer(nn.Module):
         self.dff = dff
         self.Dropout = nn.Dropout(dropout)
 
-        self.embedding = nn.Embedding(len(vocab), emb_dim, padding_idx=vocab['pad'])
+        self.embedding = nn.Embedding(len(vocab), emb_dim, padding_idx=vocab['<pad>'])
         self.positional_encoding_encoder = positional_encoding(max_input_length-1, emb_dim)
         self.positional_encoding_decoder = positional_encoding(max_target_length-1, emb_dim)
 
@@ -156,8 +156,10 @@ class Transformer(nn.Module):
         #Positional Encoding masking for training data
         positional_mask_batch = (batch != self.vocab['<pad>']).unsqueeze(-1).float()
         training_data *= positional_mask_batch
-        
-        training_data += self.positional_encoding_encoder().to(training_data.device) * positional_mask_batch
+
+        # Slice positional encoding to match the sequence length of the batch
+        seq_len_batch = training_data.size(-2)
+        training_data += self.positional_encoding_encoder().to(training_data.device)[:, :seq_len_batch, :] * positional_mask_batch
         #Attention masking for training data
         attention_mask_batch = (batch != self.vocab['<pad>']).unsqueeze(-1).float()
 
@@ -173,11 +175,15 @@ class Transformer(nn.Module):
         #Positional Encoding masking for target data
         positional_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
         target_data *= positional_mask_target
-        target_data += self.positional_encoding_decoder().to(target_data.device) * positional_mask_target
+        #print(target_data.size())
+        # Slice positional encoding to match the sequence length of the target
+        seq_len_target = target_data.size(-2)
+        #print(self.positional_encoding_decoder().to(target_data.device)[:, :seq_len_target, :].size())
+        target_data += self.positional_encoding_decoder().to(target_data.device)[:, :seq_len_target, :] * positional_mask_target
         #Attention masking for target data
         attention_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
 
-
+        #print(f"target data size after embedding and masking is\t{target_data.shape}")
         masked_attention_output = self.masked_attention(target_data,
                                                         target_data,
                                                         target_data,
@@ -201,31 +207,31 @@ class Transformer(nn.Module):
         return result
     
 
-def train(model, train_set, val_set, epochs, l, vocab, device):
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab['<pad>'])
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+def train(model, train_set, val_set, epochs, lr, device):
+    criterion = nn.CrossEntropyLoss(ignore_index=model.vocab['<pad>'])
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9)
     train_losses = []
     val_losses = []
 
     for epoch in range(epochs):
-        train_accuracy = 0
+        train_accuracy = 0.0
         val_accuracy = 0.0
         training_loss = 0.0
         validation_loss = 0.0
 
         model.train()
         train_loop = tqdm(train_set, desc=f"Train Epoch {epoch+1}", leave=False)
-        
+
         for train_batch, target_train_batch in train_loop:
             optimizer.zero_grad()
-            
+
             train_batch, target_train_batch = train_batch.to(device), target_train_batch.to(device)
 
             predicted_output = model(train_batch[:,1:], target_train_batch[:,:-1])
 
             logits = predicted_output.contiguous().view(-1, predicted_output.size(-1))
             targets = target_train_batch[:,1:].contiguous().view(-1)
-            
+
             loss = criterion(logits, targets)
             loss.backward()
             optimizer.step()
@@ -234,10 +240,17 @@ def train(model, train_set, val_set, epochs, l, vocab, device):
             #_, pred_class = torch.max(predicted_output, 1)
             #equals = pred_class == target_train_batch.view(*pred_class.shape)
             #train_accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
+    
+            preds = torch.argmax(predicted_output, dim=-1)
+            #print(f"preds shape is\t{preds.shape}")
+            #print(f"targets shape is\t{targets.shape}")
+            mask = (targets != model.vocab['<pad>'])
+            accuracy = ((preds.view(-1) == targets) & mask).sum() / mask.sum()
+            train_accuracy += accuracy
 
         train_losses.append(training_loss/len(train_set))
         print(f"Epoch {epoch+1} accumelated Training batches loss is:\t\t {training_loss/len(train_set)}")
-        #print(f"Epoch {epoch+1} accuracy on Training batches is:\t\t {train_accuracy / len(train_set)}")
+        print(f"Epoch {epoch+1} accuracy on Training batches is:\t\t {train_accuracy / len(train_set)}")
 
 
         model.eval()
@@ -245,21 +258,26 @@ def train(model, train_set, val_set, epochs, l, vocab, device):
 
         with torch.no_grad():
             for valid_batch, target_valid_batch in val_loop:
-                
+
                 valid_batch, target_valid_batch = valid_batch.to(device), target_valid_batch.to(device)
                 predicted_output = model(valid_batch[:,1:], target_valid_batch[:,:-1])
-                
-                logits = predicted_output.contiguous().view(-1, predicted_output.size(-1))
-                targets = target_valid_batch[:,1:].contiguous().view(-1)
-                
+
+                logits = predicted_output.contiguous().view(-1, predicted_output.size(-1)).clone().detach()
+                targets = target_valid_batch[:,1:].contiguous().view(-1).clone().detach()
+
                 loss = criterion(logits, targets)
                 validation_loss += loss.item()
                 #_, pred_class=torch.max(predicted_output, 1)
                 #equals = pred_class == target_valid_batch.view(*pred_class.shape)
                 #val_accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
-    
+
+                preds = torch.argmax(predicted_output, dim=-1)
+                mask = (targets != model.vocab['<pad>'])
+                accuracy = ((preds.view(-1) == targets) & mask).sum() / mask.sum()
+                val_accuracy += accuracy
+
         val_losses.append(validation_loss/len(val_set))
         print(f"Epoch {epoch+1} accumelated validation batches loss is:\t\t {validation_loss/len(val_set)}")
-        #print(f"Epoch {epoch+1} accuracy on validation batches is:\t\t {val_accuracy / len(val_set)}")
+        print(f"Epoch {epoch+1} accuracy on validation batches is:\t\t {val_accuracy / len(val_set)}")
 
     return train_losses, val_losses
