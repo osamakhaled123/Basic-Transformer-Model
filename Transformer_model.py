@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import numpy as np
-from datasets import load_dataset
 from tqdm import tqdm
+import Processing_Summarizing_Datasets_From_Scratch as pre
 
 class positional_encoding(nn.Module):
     def __init__(self, max_length, emb_dim):
@@ -46,8 +45,7 @@ class scaled_dot_product_attention(nn.Module):
         scores = torch.matmul(Q, torch.transpose(K,-1,-2))
         dk = torch.sqrt(torch.tensor(K.size(-1)))
         scores /= dk
-        #print(f"Scores size is {scores.shape} with Q size {Q.shape} and K size {K.shape}",end='\n\n')
-        #print(f"attention mask shape is {attention_mask.shape}", end='\n\n')
+        
         scores = scores.masked_fill(attention_mask == 0, float(-1e10))
 
         if self.causal:
@@ -175,15 +173,14 @@ class Transformer(nn.Module):
         #Positional Encoding masking for target data
         positional_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
         target_data *= positional_mask_target
-        #print(target_data.size())
+
         # Slice positional encoding to match the sequence length of the target
         seq_len_target = target_data.size(-2)
-        #print(self.positional_encoding_decoder().to(target_data.device)[:, :seq_len_target, :].size())
+ 
         target_data += self.positional_encoding_decoder().to(target_data.device)[:, :seq_len_target, :] * positional_mask_target
         #Attention masking for target data
         attention_mask_target = (target != self.vocab['<pad>']).unsqueeze(-1).float()
 
-        #print(f"target data size after embedding and masking is\t{target_data.shape}")
         masked_attention_output = self.masked_attention(target_data,
                                                         target_data,
                                                         target_data,
@@ -237,13 +234,8 @@ def train(model, train_set, val_set, epochs, lr, device):
             optimizer.step()
 
             training_loss += loss.item()
-            #_, pred_class = torch.max(predicted_output, 1)
-            #equals = pred_class == target_train_batch.view(*pred_class.shape)
-            #train_accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
-    
+
             preds = torch.argmax(predicted_output, dim=-1)
-            #print(f"preds shape is\t{preds.shape}")
-            #print(f"targets shape is\t{targets.shape}")
             mask = (targets != model.vocab['<pad>'])
             accuracy = ((preds.view(-1) == targets) & mask).sum() / mask.sum()
             train_accuracy += accuracy
@@ -267,9 +259,6 @@ def train(model, train_set, val_set, epochs, lr, device):
 
                 loss = criterion(logits, targets)
                 validation_loss += loss.item()
-                #_, pred_class=torch.max(predicted_output, 1)
-                #equals = pred_class == target_valid_batch.view(*pred_class.shape)
-                #val_accuracy += torch.mean(equals.type(torch.FloatTensor)).item()
 
                 preds = torch.argmax(predicted_output, dim=-1)
                 mask = (targets != model.vocab['<pad>'])
@@ -281,3 +270,72 @@ def train(model, train_set, val_set, epochs, lr, device):
         print(f"Epoch {epoch+1} accuracy on validation batches is:\t\t {val_accuracy / len(val_set)}")
 
     return train_losses, val_losses
+
+def detokenize(model, sequence, vocab):
+    return [vocab[key] for key in sequence if vocab[key] not in ('<bos>','<eos>', '<unk>')]
+
+def beam_search(model, text, beam_width, device, max_length):
+    model.eval()
+    with torch.no_grad():
+        start_token = torch.tensor([model.vocab['<bos>']])
+        input_tokens = torch.tensor(text)
+        
+        input_tokens, start_token = input_tokens.to(device), start_token.to(device)
+        input_tokens = input_tokens.unsqueeze(0)
+        
+        predicted_output = model(input_tokens[:,1:].clone().detach(), start_token.unsqueeze(0))
+        _, pred_class = torch.topk(predicted_output, beam_width, -1)
+        generated_outputs = pred_class.clone().detach().T.squeeze(1).tolist()
+        
+        for i in range(len(generated_outputs)):
+            generated_outputs[i].insert(0, model.vocab['<bos>'])
+
+        for i in range(2, max_length):
+            outputs = []
+            mapped = {}
+            
+            for seq in range(beam_width):
+                predicted_outputs = model(input_tokens[:,1:].clone().detach().to(device), torch.tensor(generated_outputs[seq]).unsqueeze(0).to(device))
+                prob_class, pred_class = torch.topk(predicted_outputs, beam_width, -1)
+                prob_class.squeeze_()
+                pred_class.squeeze_() 
+                mapped.update(dict(zip(prob_class.tolist()[-1], pred_class.tolist()[-1])))
+                outputs.extend([p for p in pred_class.tolist()[-1]])
+
+            temp_list = generated_outputs.copy()
+            sorted_scores = sorted(list(mapped.keys()), reverse=True)
+            for score in range(beam_width):
+                next_token = mapped[sorted_scores[score]]     
+                index = outputs.index(next_token) % beam_width
+                if temp_list[index][-1] != model.vocab['<eos>']:
+                    if generated_outputs[score][-1] != model.vocab['<eos>']:
+                        generated_outputs[score] = temp_list[index].copy()
+                        generated_outputs[score].append(next_token)  
+                 
+        return generated_outputs
+    
+
+def summarize(model, text, beam_width, device, max_length):
+    #preprocessing the text before feeding it to the model
+    text = pre.removing_unwanted_characters(text)
+    text = [model.vocab.get(word) for word in text.split() if model.vocab.get(word) != None]
+    text.insert(0, model.vocab['<bos>'])
+    text.append(model.vocab['<eos>'])
+    if len(text) < model.max_input_length:
+        rem = model.max_input_length - len(text)
+        text.extend([0]*rem)
+
+    elif len(text) > model.max_input_length:
+            text = text[:model.max_input_length]
+    ###########################################################################
+    best_sequences_predicted = beam_search(model, text, beam_width, device, max_length)
+    returned_sequences = []
+    de_vocab = {v:k for k,v in model.vocab.items()}
+    
+    for seq in best_sequences_predicted:
+        sentence = detokenize(model, seq, de_vocab)
+        if len(sentence) > 0:
+            returned_sequences.append(" ".join(sentence))
+
+    return returned_sequences
+        
