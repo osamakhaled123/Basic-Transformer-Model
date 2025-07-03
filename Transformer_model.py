@@ -274,45 +274,62 @@ def train(model, train_set, val_set, epochs, lr, device):
 def detokenize(model, sequence, vocab):
     return [vocab[key] for key in sequence if vocab[key] not in ('<bos>','<eos>', '<unk>')]
 
-def beam_search(model, text, beam_width, device, max_length):
+def beam_search(model, text, beam_width, device, max_length, repetition_penalty=1.2, alpha=0.7):
     model.eval()
     with torch.no_grad():
-        start_token = torch.tensor([model.vocab['<bos>']])
-        input_tokens = torch.tensor(text)
-        
-        input_tokens, start_token = input_tokens.to(device), start_token.to(device)
-        input_tokens = input_tokens.unsqueeze(0)
-        
-        predicted_output = model(input_tokens[:,1:].clone().detach(), start_token.unsqueeze(0))
-        _, pred_class = torch.topk(predicted_output, beam_width, -1)
-        generated_outputs = pred_class.clone().detach().T.squeeze(1).tolist()
-        
-        for i in range(len(generated_outputs)):
-            generated_outputs[i].insert(0, model.vocab['<bos>'])
+        input_tokens = torch.tensor(text).to(device).unsqueeze(0)
+        start_token = torch.tensor([model.vocab['<bos>']], device=device).unsqueeze(0)
 
-        for i in range(2, max_length):
-            outputs = []
-            mapped = {}
-            
-            for seq in range(beam_width):
-                predicted_outputs = model(input_tokens[:,1:].clone().detach().to(device), torch.tensor(generated_outputs[seq]).unsqueeze(0).to(device))
-                prob_class, pred_class = torch.topk(predicted_outputs, beam_width, -1)
-                prob_class.squeeze_()
-                pred_class.squeeze_() 
-                mapped.update(dict(zip(prob_class.tolist()[-1], pred_class.tolist()[-1])))
-                outputs.extend([p for p in pred_class.tolist()[-1]])
+        # Initialize beam with one beam per top token
+        initial_output = model(input_tokens[:, 1:], start_token)
+        _, topk_tokens = torch.topk(initial_output[:, -1, :], beam_width, dim=-1)
 
-            temp_list = generated_outputs.copy()
-            sorted_scores = sorted(list(mapped.keys()), reverse=True)
-            for score in range(beam_width):
-                next_token = mapped[sorted_scores[score]]     
-                index = outputs.index(next_token) % beam_width
-                if temp_list[index][-1] != model.vocab['<eos>']:
-                    if generated_outputs[score][-1] != model.vocab['<eos>']:
-                        generated_outputs[score] = temp_list[index].copy()
-                        generated_outputs[score].append(next_token)  
-                 
-        return generated_outputs
+        # Each beam is a tuple (sequence, score)
+        beams = [[
+            [model.vocab['<bos>'], token.item()],  # generated sequence
+            0.0                                    # cumulative log prob (score)
+        ] for token in topk_tokens.squeeze(0)]
+
+        completed_beams = []
+
+        for _ in range(2, max_length):
+            candidates = []
+            for seq, score in beams:
+                if seq[-1] == model.vocab['<eos>']:
+                    completed_beams.append((seq, score))
+                    continue
+
+                decoder_input = torch.tensor(seq, device=device).unsqueeze(0)
+                output = model(input_tokens[:, 1:], decoder_input)
+                logits = output[:, -1, :]
+
+                # Apply repetition penalty
+                for token_id in set(seq):
+                    logits[0, token_id] /= repetition_penalty
+
+                log_probs = torch.log_softmax(logits, dim=-1)
+                topk_log_probs, topk_indices = torch.topk(log_probs, beam_width)
+
+                for log_prob, token in zip(topk_log_probs.squeeze(), topk_indices.squeeze()):
+                    new_seq = seq + [token.item()]
+                    new_score = score + log_prob.item()
+
+                    # Optional: trigram blocking
+                    if len(new_seq) >= 6:
+                        trigrams = set(tuple(new_seq[i:i+3]) for i in range(len(new_seq) - 2))
+                        if len(trigrams) < len(new_seq) - 2:
+                            continue  # skip repeated trigram
+
+                    candidates.append((new_seq, new_score))
+
+            # Sort and keep best beams with length normalization
+            beams = sorted(candidates, key=lambda x: x[1] / (len(x[0]) ** alpha), reverse=True)[:beam_width]
+
+        # Add any remaining beams not ended by EOS
+        completed_beams.extend([b for b in beams if b[0][-1] != model.vocab['<eos>']])
+        best_sequence = max(completed_beams, key=lambda x: x[1] / (len(x[0]) ** alpha))[0]
+
+        return best_sequence
     
 
 def summarize(model, text, beam_width, device, max_length):
