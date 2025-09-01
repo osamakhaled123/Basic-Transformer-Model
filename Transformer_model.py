@@ -165,7 +165,7 @@ class Transformer(nn.Module):
                                               training_data,
                                               training_data,
                                                self.encoder_blocks,
-                                               attention_mask_batch)
+                                               attention_mask_batch, 'encoder')
         K, V = encoder_output, encoder_output
 
         #Decoder Part
@@ -189,17 +189,22 @@ class Transformer(nn.Module):
         Q = self.layer_normalization(out)
 
         decoder_output = self.encoder_decoder(Q, K, V, self.decoder_blocks,
-                                              attention_mask_target)
+                                              attention_mask_target, 'decoder')
 
         pre_softmax = torch.nn.functional.linear(decoder_output, self.embedding.weight)
         pre_softmax = self.Dropout(pre_softmax)
 
         return pre_softmax
     #Encoder-Decoder Blocks
-    def encoder_decoder(self, Q, K, V, blocks, attention_mask):
-        for block in blocks:
-            result = block(Q, K, V, attention_mask)
-            Q, K, V = result, result, result
+    def encoder_decoder(self, Q, K, V, blocks, attention_mask, kind):
+        if kind == 'encoder':
+            for block in blocks:
+                result = block(Q, K, V, attention_mask)
+                Q, K, V = result, result, result
+        else:
+            result = Q
+            for block in blocks:
+                result = block(result, K, V, attention_mask)   
 
         return result
     
